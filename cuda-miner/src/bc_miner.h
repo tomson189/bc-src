@@ -20,7 +20,7 @@ typedef struct curandStateXORWOW curandState;
 //typedef CUstream_st * cudaStream_t;
 
 struct bc_mining_data {
-  static const size_t INLENGTH = 2048;
+  static const size_t INLENGTH = 256;
   uint8_t  result[HASH_TRIES*BLAKE2B_OUTBYTES],nonce_hashes[HASH_TRIES*BLAKE2B_OUTBYTES];
   uint64_t distance[HASH_TRIES];
   uint64_t nonce[HASH_TRIES];

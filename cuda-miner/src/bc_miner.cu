@@ -29,7 +29,8 @@ __global__ void setup_rand(curandState* state, uint32_t random)
 //__device__ __host__ __forceinline__ 
 __global__
 void one_unit_work(bc_mining_data* mining_info) {
-  
+
+  unsigned i = threadIdx.x;
   unsigned id = threadIdx.x + blockIdx.x *blockDim.x;
   
   uint8_t data_in[bc_mining_data::INLENGTH];
@@ -40,12 +41,16 @@ void one_unit_work(bc_mining_data* mining_info) {
   memcpy(data_in+mining_info->nonce_hash_offset_,mining_info->nonce_hashes+idoffset,BLAKE2B_OUTBYTES);
 
   
-  blake2b_state s;
-  blake2b_init_cu(&s,BLAKE2B_OUTBYTES);  
-  blake2b_update_cu(&s,data_in,mining_info->work_size_);
-  blake2b_final_cu(&s,mining_info->result+idoffset,BLAKE2B_OUTBYTES);
-  
+  __shared__ blake2b_state s[N_MINER_THREADS_PER_BLOCK];
+  blake2b_init_cu(&s[i],BLAKE2B_OUTBYTES);  
+  blake2b_update_cu(&s[i],data_in,mining_info->work_size_);
+  blake2b_final_cu(&s[i],mining_info->result+idoffset,BLAKE2B_OUTBYTES);
+}
 
+__global__
+void calc_distances(bc_mining_data* mining_info) {
+  unsigned id = threadIdx.x + blockIdx.x * blockDim.x;
+  
   mining_info->distance[id] = cosine_distance_cu(mining_info->received_work_,
 						 mining_info->result+id*BLAKE2B_OUTBYTES);
 }
@@ -55,49 +60,44 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
 
   static uint16_t num_to_code[16] =  {48,49,50,51,52,53,54,55,56,57,97,98,99,100,101,102};  
 
+  unsigned i = threadIdx.x;
   unsigned id = threadIdx.x + blockIdx.x * blockDim.x;
     
   curandState localState = state[id];
-  uint8_t nonce_string[64]; // ten bytes and a null character max;
+  __shared__ uint8_t nonce_string[N_MINER_THREADS_PER_BLOCK][64]; // ten bytes and a null character max;
   uint8_t nonce_hash[BLAKE2B_OUTBYTES];
-  memset(nonce_string,0,64);
+  memset(nonce_string[i],0,64);
 
   //2060688607;
   uint64_t nonce = startnonce + id + curand(&localState) + ( ((uint64_t)curand(&localState)) << 32 );
   
   // convert nonce
-  nonce_string[0] = '0'; // take care of base case
+  nonce_string[i][0] = '0'; // take care of base case
   uint32_t length = 0;
   uint64_t red_nonce = nonce;
   while( red_nonce > 0 ) { ++length; red_nonce /= 10ULL; }
   red_nonce = nonce;
-  for( uint64_t i = length; i > 1; --i ) {
-    nonce_string[i-1] = num_to_code[red_nonce%10];
+  for( uint64_t j = length; j > 1; --j ) {
+    nonce_string[i][j-1] = num_to_code[red_nonce%10];
     red_nonce /= 10ULL;
   }
-  nonce_string[0] = num_to_code[red_nonce];
+  nonce_string[i][0] = num_to_code[red_nonce];
   length = (length == 0) + (length > 0)*length;
   
   //printf("length: %u %u %s\n",length,nonce,nonce_string); 
   
   // create the nonce hash
-  blake2b_state ns;
-  blake2b_init_cu(&ns,BLAKE2B_OUTBYTES);  
-  blake2b_update_cu(&ns,nonce_string,length);
-  blake2b_final_cu(&ns,nonce_hash,BLAKE2B_OUTBYTES);
-
-  // hash the hash for extra hashiness
-  //blake2b_state ns1;
-  //blake2b_init_cu(&ns1,BLAKE2B_OUTBYTES);
-  //blake2b_update_cu(&ns1,nonce_hash,BLAKE2B_OUTBYTES);
-  //blake2b_final_cu(&ns1,nonce_hash_hash,BLAKE2B_OUTBYTES);
+  __shared__ blake2b_state ns[N_MINER_THREADS_PER_BLOCK];
+  blake2b_init_cu(&ns[i],BLAKE2B_OUTBYTES);  
+  blake2b_update_cu(&ns[i],nonce_string[i],length);
+  blake2b_final_cu(&ns[i],nonce_hash,BLAKE2B_OUTBYTES);
 
   // convert nonce in place to string codes and "blake2bl" form
   #pragma unroll
-  for( unsigned i = 32; i < BLAKE2B_OUTBYTES; ++i ) {
-    uint8_t byte = nonce_hash[i];
-    nonce_hash[2*(i-32)] = num_to_code[byte>>4];
-    nonce_hash[2*(i-32)+1] = num_to_code[byte&0xf];
+  for( unsigned j = 32; j < BLAKE2B_OUTBYTES; ++j ) {
+    uint8_t byte = nonce_hash[j];
+    nonce_hash[2*(j-32)] = num_to_code[byte>>4];
+    nonce_hash[2*(j-32)+1] = num_to_code[byte&0xf];
   }
     
   // now we put everything into the data_in string in stringified hex form  
@@ -209,7 +209,10 @@ void run_miner(const bc_mining_inputs& in, const uint64_t start_nonce, bc_mining
   if( pool.dev_states == NULL ) return;
   if( pool.scratch_dists == NULL ) return;
   if( pool.scratch_indices == NULL ) return;
-  
+
+  cudaFuncSetCacheConfig(prepare_work_nonces, cudaFuncCachePreferShared);
+  cudaFuncSetCacheConfig(one_unit_work, cudaFuncCachePreferShared);
+
   uint64_t nonce_local = start_nonce;
 
   unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
@@ -264,6 +267,7 @@ void run_miner(const bc_mining_inputs& in, const uint64_t start_nonce, bc_mining
    
     prepare_work_nonces<<<blocks,threads,0,stream>>>(pool.dev_states, nonce_local, pool.dev_cache);
     one_unit_work<<<blocks,threads,0,stream>>>(pool.dev_cache);
+    calc_distances<<<blocks,threads,0,stream>>>(pool.dev_cache);
     cudaMemsetAsync(pool.scratch_dists,0,HASH_TRIES*sizeof(uint64_t),stream);
     cudaMemsetAsync(pool.scratch_indices,0,HASH_TRIES*sizeof(uint64_t),stream);
     prepare_max_distance<<<blocks,threads,0,stream>>>(pool.scratch_dists,pool.scratch_indices,pool.dev_cache->distance);
