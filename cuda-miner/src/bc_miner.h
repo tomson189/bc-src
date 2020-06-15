@@ -13,6 +13,7 @@
 
 static const unsigned HASH_TRIES = 1 << 23;
 static const unsigned N_MINER_THREADS_PER_BLOCK = 32;
+static const unsigned NONCESIZE = 64;
 
 // forward decl of curandState
 // include curand_kernel.h in your .cu file!!
@@ -23,7 +24,7 @@ struct bc_mining_data {
   static const size_t INLENGTH = 256;
   uint8_t  result[HASH_TRIES*BLAKE2B_OUTBYTES],nonce_hashes[HASH_TRIES*BLAKE2B_OUTBYTES];
   uint64_t distance[HASH_TRIES];
-  uint64_t nonce[HASH_TRIES];
+  uint8_t  nonce[NONCESIZE*HASH_TRIES];
   bool     over_difficulty[HASH_TRIES];
   // common data
   uint8_t  work_template_[INLENGTH]; 
@@ -52,7 +53,8 @@ struct bc_mining_inputs {
 struct bc_mining_outputs {
   uint8_t  result_blake2b_[BLAKE2B_OUTBYTES];
   uint64_t distance_, difficulty_, iterations_;
-  uint64_t nonce_;
+  uint8_t nonce_[NONCESIZE];
+  size_t noncelength_;
   bool canceled_;
 };
 

@@ -127,6 +127,7 @@ void CallData::Proceed() {
 	     << (unsigned)(out.result_blake2b_[i]&0xf);
     }
     result << std::dec;
+    
     std::cout << "mining result      : " << std::endl
 	      << "\tresult           : " << result.str() << std::endl
 	      << "\tnonce            : " << out.nonce_ << std::endl
