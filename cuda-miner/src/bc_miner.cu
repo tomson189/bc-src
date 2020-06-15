@@ -54,13 +54,14 @@ __global__
 void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data* mining_info) {
 
   static uint16_t num_to_code[16] =  {48,49,50,51,52,53,54,55,56,57,97,98,99,100,101,102};  
+  static uint8_t nonce_prefix[16] = "TITTYSPRINKLES";
 
   unsigned id = threadIdx.x + blockIdx.x * blockDim.x;
     
   curandState localState = state[id];
-  uint8_t nonce_string[64]; // ten bytes and a null character max;
+  __shared__ uint8_t nonce_string[N_MINER_THREADS_PER_BLOCK][NONCESIZE]; // up to 64 bytes of nonce
   uint8_t nonce_hash[BLAKE2B_OUTBYTES];
-  memset(nonce_string,0,64);
+  memset(nonce_string[i],0,NONCESIZE);
 
   //2060688607;
   uint64_t nonce = startnonce + id + curand(&localState) + ( ((uint64_t)curand(&localState)) << 32 );
@@ -77,8 +78,10 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
   }
   nonce_string[0] = num_to_code[red_nonce];
   length = (length == 0) + (length > 0)*length;
-  
-  //printf("length: %u %u %s\n",length,nonce,nonce_string); 
+  memcpy(nonce_string[i] + length, nonce_prefix, 15);
+  length += 15;
+
+  //printf("length: %u %llu %s\n",length,nonce,nonce_string[i]); 
   
   // create the nonce hash
   blake2b_state ns;
@@ -107,7 +110,7 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
 	 BLAKE2B_OUTBYTES);  
 
   //copy the local work back to the gpu memory  
-  mining_info->nonce[id] = nonce;
+  memcpy(mining_info->nonce + id*NONCESIZE, nonce_string[i], length);
 
   state[id] = localState;
 }
@@ -259,7 +262,7 @@ void run_miner(const bc_mining_inputs& in, const uint64_t start_nonce, bc_mining
 
     if( solution_found || cancel ) break;
     cudaMemsetAsync(pool.dev_cache->result,0,HASH_TRIES*BLAKE2B_OUTBYTES,stream);
-    cudaMemsetAsync(pool.dev_cache->nonce,0,HASH_TRIES*sizeof(uint64_t),stream);
+    cudaMemsetAsync(pool.dev_cache->nonce,0,HASH_TRIES*NONCESIZE,stream);
     cudaMemsetAsync(pool.dev_cache->nonce_hashes,0,HASH_TRIES*BLAKE2B_OUTBYTES,stream);
    
     prepare_work_nonces<<<blocks,threads,0,stream>>>(pool.dev_states, nonce_local, pool.dev_cache);
@@ -281,7 +284,7 @@ void run_miner(const bc_mining_inputs& in, const uint64_t start_nonce, bc_mining
       best_value = max_value;
       const uint64_t offsetb2b = max_idx*BLAKE2B_OUTBYTES;
       cudaMemcpyAsync(out.result_blake2b_,pool.dev_cache->result+offsetb2b, BLAKE2B_OUTBYTES,cudaMemcpyDeviceToHost,stream);
-      cudaMemcpyAsync(&out.nonce_, &pool.dev_cache->nonce[max_idx], sizeof(uint64_t), cudaMemcpyDeviceToHost,stream);
+      cudaMemcpyAsync(&out.nonce_, pool.dev_cache->nonce + max_idx*NONCESIZE, NONCESIZE, cudaMemcpyDeviceToHost,stream);
     }
     ++iterations;    
     nonce_local = generator() ^ generator();
