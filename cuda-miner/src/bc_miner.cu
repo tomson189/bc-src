@@ -84,8 +84,8 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
   }
   nonce_string[i][0] = num_to_code[red_nonce];
   length = (length == 0) + (length > 0)*length;
-  memcpy(nonce_string[i] + length, nonce_prefix, 15);
-  length += 15;
+  memcpy(nonce_string[i] + length, nonce_prefix, 14);
+  length += 14;
 
   //printf("length: %u %llu %s\n",length,nonce,nonce_string[i]); 
   
