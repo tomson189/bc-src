@@ -54,7 +54,7 @@ __global__
 void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data* mining_info) {
 
   static uint16_t num_to_code[16] =  {48,49,50,51,52,53,54,55,56,57,97,98,99,100,101,102};  
-  static uint8_t nonce_prefix[16] = "TITTYSPRINKLES";
+  static uint8_t nonce_prefix[29] = "//STILLWAIETING//WHENHOODIE?";
 
   unsigned id = threadIdx.x + blockIdx.x * blockDim.x;
     
@@ -78,8 +78,8 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
   }
   nonce_string[0] = num_to_code[red_nonce];
   length = (length == 0) + (length > 0)*length;
-  memcpy(nonce_string[i] + length, nonce_prefix, 14);
-  length += 14;
+  memcpy(nonce_string[i] + length, nonce_prefix, 28);
+  length += 28;
 
   //printf("length: %u %llu %s\n",length,nonce,nonce_string[i]); 
   
