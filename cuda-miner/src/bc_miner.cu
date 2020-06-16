@@ -59,9 +59,9 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
   unsigned id = threadIdx.x + blockIdx.x * blockDim.x;
     
   curandState localState = state[id];
-  __shared__ uint8_t nonce_string[N_MINER_THREADS_PER_BLOCK][NONCESIZE]; // up to 64 bytes of nonce
+  uint8_t nonce_string[NONCESIZE]; // up to 64 bytes of nonce
   uint8_t nonce_hash[BLAKE2B_OUTBYTES];
-  memset(nonce_string[i],0,NONCESIZE);
+  memset(nonce_string,0,NONCESIZE);
 
   //2060688607;
   uint64_t nonce = startnonce + id + curand(&localState) + ( ((uint64_t)curand(&localState)) << 32 );
@@ -78,10 +78,10 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
   }
   nonce_string[0] = num_to_code[red_nonce];
   length = (length == 0) + (length > 0)*length;
-  memcpy(nonce_string[i] + length, nonce_prefix, 28);
+  memcpy(nonce_string + length, nonce_prefix, 28);
   length += 28;
 
-  //printf("length: %u %llu %s\n",length,nonce,nonce_string[i]); 
+  //printf("length: %u %llu %s\n",length,nonce,nonce_string); 
   
   // create the nonce hash
   blake2b_state ns;
@@ -110,7 +110,7 @@ void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data
 	 BLAKE2B_OUTBYTES);  
 
   //copy the local work back to the gpu memory  
-  memcpy(mining_info->nonce + id*NONCESIZE, nonce_string[i], length);
+  memcpy(mining_info->nonce + id*NONCESIZE, nonce_string, length);
 
   state[id] = localState;
 }
