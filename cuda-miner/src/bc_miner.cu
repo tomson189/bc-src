@@ -54,7 +54,7 @@ __global__
 void prepare_work_nonces(curandState *state, uint64_t startnonce, bc_mining_data* mining_info) {
 
   static uint16_t num_to_code[16] =  {48,49,50,51,52,53,54,55,56,57,97,98,99,100,101,102};  
-  static uint8_t nonce_prefix[29] = "//WAIETING/HOODIE/WITHOUTIRE/";
+  static uint8_t nonce_prefix[29] = "/WAIETING/HOODIE/WITHOUTIRE/";
 
   unsigned id = threadIdx.x + blockIdx.x * blockDim.x;
     
